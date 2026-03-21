@@ -148,10 +148,17 @@ bool lockModDepthTo3_125_ = false;
 
 bool leds = true;
 
+/* LibDaisy changed the API and made these private.
 auto *LED0PtrRed = &hw.leds[0].r_;
 auto *LED1PtrRed = &hw.leds[1].r_;
 auto *LED2PtrRed = &hw.leds[2].r_;
 auto *LED3PtrRed = &hw.leds[3].r_;
+*/
+
+auto &LED0PtrRed = hw.leds[0];
+auto &LED1PtrRed = hw.leds[1];
+auto &LED2PtrRed = hw.leds[2];
+auto &LED3PtrRed = hw.leds[3];
 
 Dattorro reverb(32000, 16, 4.0);
 
@@ -212,16 +219,40 @@ unsigned int genericLedTimer = genericLedOnTime + 1;
 bool freeze = false;
 
 // Persistence
+constexpr uint32_t settingsVersion = 1;
+
 struct Settings {
-    int gainMode;
-    //int buttonMode;
-    bool operator!=(const Settings& a) {
-        return (a.gainMode != gainMode);
-        //or (a.buttonMode != buttonMode);
+    uint32_t gainMode;
+    uint32_t version;
+    float inputDampLow;
+    float inputDampHigh;
+    float reverbDampLow;
+    float reverbDampHigh;
+    float diffusion;
+    float inputAmplification;
+    float outputAmplification;
+
+    bool operator!=(const Settings& other) const {
+        return gainMode != other.gainMode
+            || version != other.version
+            || inputDampLow != other.inputDampLow
+            || inputDampHigh != other.inputDampHigh
+            || reverbDampLow != other.reverbDampLow
+            || reverbDampHigh != other.reverbDampHigh
+            || diffusion != other.diffusion
+            || inputAmplification != other.inputAmplification
+            || outputAmplification != other.outputAmplification;
     }
 };
-Settings& operator* (const Settings& settings) { return *settings; }
+
 PersistentStorage<Settings> storage(hw.seed.qspi);
+bool settingsDirty = false;
+
+inline void markSettingsDirty() {
+    settingsDirty = true;
+    saveTrigger = false;
+    saveTimer = 0;
+}
 
 inline void saveData() {
 
@@ -231,8 +262,18 @@ inline void saveData() {
 
     Settings &localSettings = storage.GetSettings();
     localSettings.gainMode = gainMode;
-    //localSettings.buttonMode = buttonMode;
+    localSettings.version = settingsVersion;
+    localSettings.inputDampLow = inputDampLow;
+    localSettings.inputDampHigh = inputDampHigh;
+    localSettings.reverbDampLow = reverbDampLow;
+    localSettings.reverbDampHigh = reverbDampHigh;
+    localSettings.diffusion = diffusion;
+    localSettings.inputAmplification = inputAmplification;
+    localSettings.outputAmplification = outputAmplification;
     storage.Save();
+    settingsDirty = false;
+    saveTrigger = false;
+    saveTimer = 0;
 }
 
 inline void loadData() {
@@ -243,8 +284,31 @@ inline void loadData() {
 
     Settings &localSettings = storage.GetSettings();
     gainMode = localSettings.gainMode;
-    //buttonMode = localSettings.buttonMode;
 
+    if(localSettings.version != settingsVersion) {
+        diffusionEnabled = diffusion != 0.;
+        saveData();
+        return;
+    }
+
+    inputDampLow = localSettings.inputDampLow;
+    inputDampHigh = localSettings.inputDampHigh;
+    reverbDampLow = localSettings.reverbDampLow;
+    reverbDampHigh = localSettings.reverbDampHigh;
+    diffusion = localSettings.diffusion;
+    inputAmplification = localSettings.inputAmplification;
+    outputAmplification = localSettings.outputAmplification;
+    diffusionEnabled = diffusion != 0.;
+}
+
+inline void saveCounterAudioRate() {
+    if(settingsDirty) {
+        if(saveTimer < saveTime) {
+            ++saveTimer;
+        } else {
+            saveTrigger = true;
+        }
+    }
 }
 
 inline void saturation(double &x) {
@@ -385,14 +449,14 @@ inline void checkIfModDepthKnobIsMoving(double currentValue) {
 
 //These pointers are necessary to speed up the code, otherwise severe crackling occurs.
 inline void setAndUpdateGainLeds(const double &w, const double &x, const double &y, const double &z) {
-    LED0PtrRed->Set(w);
-    LED1PtrRed->Set(x);
-    LED2PtrRed->Set(y);
-    LED3PtrRed->Set(z);
-    LED0PtrRed->Update();
-    LED1PtrRed->Update();
-    LED2PtrRed->Update();
-    LED3PtrRed->Update();
+    LED0PtrRed.SetRed(w);
+    LED1PtrRed.SetRed(x);
+    LED2PtrRed.SetRed(y);
+    LED3PtrRed.SetRed(z);
+    LED0PtrRed.Update();
+    LED1PtrRed.Update();
+    LED2PtrRed.Update();
+    LED3PtrRed.Update();
 }
 
 inline void prepareLeds(const double &w, const double &x, const double &y, const double &z) {
@@ -429,6 +493,7 @@ inline void processSwitches() {
             inputDampHigh = toneKnobZeroLockValue;
             if(((inputDampHigh - previousInputDampHigh) < 0.01) and ((inputDampHigh - previousInputDampHigh) > -0.01)) {
                 previousInputDampHigh = inputDampHigh;
+                markSettingsDirty();
                 reverb.setInputFilterHighCutoffPitch(10. - (10. * inputDampHigh));
                 if(toneKnobIsMoving) {
                     toneKnobLedTimer = 0;
@@ -445,6 +510,7 @@ inline void processSwitches() {
             reverbDampHigh = toneKnobZeroLockValue;
             if(((reverbDampHigh - previousReverbDampHigh) < 0.01) and ((reverbDampHigh - previousReverbDampHigh) > -0.01)) {
                 previousReverbDampHigh = reverbDampHigh;
+                markSettingsDirty();
                 reverb.setTankFilterHighCutFrequency(10. - (10. * reverbDampHigh));
                 if(toneKnobIsMoving) {
                     toneKnobLedTimer = 0;
@@ -463,6 +529,7 @@ inline void processSwitches() {
             inputDampLow = toneKnobZeroLockValue;
             if(((inputDampLow - previousInputDampLow) < 0.01) and ((inputDampLow - previousInputDampLow) > -0.01)) {
                 previousInputDampLow = inputDampLow;
+                markSettingsDirty();
                 reverb.setInputFilterLowCutoffPitch(inputDampLow * 10.);
                 if(toneKnobIsMoving) {
                     toneKnobLedTimer = 0;
@@ -479,6 +546,7 @@ inline void processSwitches() {
             reverbDampLow = toneKnobZeroLockValue;
             if(((reverbDampLow - previousReverbDampLow) < 0.01) and ((reverbDampLow - previousReverbDampLow) > -0.01)) {
                 previousReverbDampLow = reverbDampLow;
+                markSettingsDirty();
                 reverb.setTankFilterLowCutFrequency(reverbDampLow * 10.);
                 if(toneKnobIsMoving) {
                     toneKnobLedTimer = 0;
@@ -500,6 +568,7 @@ inline void processSwitches() {
                 tempDiffusion = toneKnobZeroLockValue;
                 if(((tempDiffusion - diffusion) < 0.01) and ((tempDiffusion - diffusion) > -0.01)) {
                     diffusion = tempDiffusion;
+                    markSettingsDirty();
                     if(diffusion == 0.) {
                         if(diffusionEnabled) {
                             diffusionEnabled = false;
@@ -528,6 +597,7 @@ inline void processSwitches() {
                 tempInputAmplification = toneKnobZeroLockValue;
                 if(((tempInputAmplification - inputAmplification) < 0.01) and ((tempInputAmplification - inputAmplification) > -0.01)) {
                     inputAmplification = tempInputAmplification;
+                    markSettingsDirty();
                     if(toneKnobIsMoving) {
                         toneKnobLedTimer = 0;
                     }
@@ -544,6 +614,7 @@ inline void processSwitches() {
                 tempOutputAmplification = toneKnobZeroLockValue;
                 if(((tempOutputAmplification - outputAmplification) < 0.01) and ((tempOutputAmplification - outputAmplification) > -0.01)) {
                     outputAmplification = tempOutputAmplification;
+                    markSettingsDirty();
                     if(toneKnobIsMoving) {
                         toneKnobLedTimer = 0;
                     }
@@ -743,15 +814,6 @@ inline void processAllParameters() {
     processSwitches();
 }
 
-// inline void saveCounterAudioRate() {
-//     if(saveTimer < saveTime) {
-//         ++saveTimer;
-//         saveTrigger = false;
-//     } else {
-//         saveTimer = 0;
-//         saveTrigger = true;
-//     }
-// }
 
 double modifier = 0.f;
 
@@ -1079,6 +1141,7 @@ void AudioCallback(AudioHandle::InputBuffer x,
         processAllParameters();
 
         incrementButtonHoldCounterAudioRate();
+        saveCounterAudioRate();
 
         interpolatingDelayHold();
 
@@ -1132,6 +1195,14 @@ int main(void)
     // Setup default settings and load saved data
     Settings defaults;
     defaults.gainMode = 0;
+    defaults.version = settingsVersion;
+    defaults.inputDampLow = 0.;
+    defaults.inputDampHigh = 0.;
+    defaults.reverbDampLow = 0.;
+    defaults.reverbDampHigh = 0.;
+    defaults.diffusion = 1.;
+    defaults.inputAmplification = 0.;
+    defaults.outputAmplification = 0.;
     storage.Init(defaults);
     loadData();
 
@@ -1142,7 +1213,7 @@ int main(void)
 
     reverb.setInputFilterLowCutoffPitch(10. * inputDampLow);
     reverb.setInputFilterHighCutoffPitch(10. - (10. * inputDampHigh));
-    reverb.enableInputDiffusion(true);
+    reverb.enableInputDiffusion(diffusionEnabled);
     reverb.setDecay(0.877465);
     reverb.setTankDiffusion(diffusion * 0.7);
     reverb.setTankFilterLowCutFrequency(10. * reverbDampLow);
@@ -1186,6 +1257,9 @@ int main(void)
         // Process switches occurs at audio rate x the callback
         checkButton();
         processButton();
+        if(saveTrigger) {
+            saveData();
+        }
         // The button LED counter occurs at audio rate
         setAndUpdateGainLeds(led1, led2, led3, led4);
 
