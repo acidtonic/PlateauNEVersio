@@ -12,13 +12,20 @@ https://electro-smith.github.io/Programmer/
 
 There is also a help section on this page.
 
-See release section of the GitHub to see changes and to download the .bin to program your Versio!
-
 ## To-do:
 
-Save filter and gain settings on power down
+Test
 
 ## Build Log
+
+## Version 1.2 03/21/2026
+
+Implemented persistence of all the Tone knob settings.
+Needs much more testing but seems to work.
+
+Bin uploaded under build/PlateauTest.bin
+
+~AcidTonic (https://www.youtube.com/@AcidTonic)
 
 ## Version 1.11 & 1.111 03/06/2024
 
