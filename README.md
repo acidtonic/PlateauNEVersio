@@ -23,6 +23,8 @@ Test
 Implemented persistence of all the Tone knob settings.
 Needs much more testing but seems to work.
 
+After leaving the Tone Knob alone for a few seconds it will persist changes to flash.
+
 Bin uploaded under build/PlateauTest.bin
 
 ~AcidTonic (https://www.youtube.com/@AcidTonic)
